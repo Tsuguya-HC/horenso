@@ -19,6 +19,13 @@ export async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS idx_posts_tags ON posts USING GIN (tags)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts (created_at DESC)`;
 
+  // Add 'event' type to posts CHECK constraint
+  await sql`DO $$ BEGIN
+    ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_type_check;
+    ALTER TABLE posts ADD CONSTRAINT posts_type_check
+      CHECK (type IN ('report', 'update', 'question', 'event'));
+  END $$`;
+
   await sql`
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
