@@ -13,8 +13,8 @@ app.post("/posts", async (c) => {
   if (!type || !source || !body) {
     return c.json({ error: "type, source, body are required" }, 400);
   }
-  if (!["report", "update", "question"].includes(type)) {
-    return c.json({ error: "type must be report, update, or question" }, 400);
+  if (!["report", "update", "question", "event"].includes(type)) {
+    return c.json({ error: "type must be report, update, question, or event" }, 400);
   }
 
   const [post] = await sql`
@@ -78,6 +78,68 @@ app.get("/posts/:id", async (c) => {
   const [post] = await sql`SELECT * FROM posts WHERE id = ${id}`;
   if (!post) return c.json({ error: "not found" }, 404);
   return c.json(post);
+});
+
+// --- Events API (ArgoCD Notifications webhook) ---
+
+app.post("/events/argocd", async (c) => {
+  const { app: appName, event, sync_status, health_status, message, url } = await c.req.json();
+
+  if (!appName || !event) {
+    return c.json({ error: "app and event are required" }, 400);
+  }
+
+  const tags = ["argocd", event];
+  if (sync_status) tags.push(`sync:${sync_status}`);
+  if (health_status) tags.push(`health:${health_status}`);
+
+  const body = [
+    `**App**: ${appName}`,
+    `**Event**: ${event}`,
+    sync_status ? `**Sync**: ${sync_status}` : null,
+    health_status ? `**Health**: ${health_status}` : null,
+    message ? `**Message**: ${message}` : null,
+    url ? `**URL**: ${url}` : null,
+  ].filter(Boolean).join("\n");
+
+  const [post] = await sql`
+    INSERT INTO posts (type, source, context, body, tags)
+    VALUES ('event', 'argocd', ${appName}, ${body}, ${tags})
+    RETURNING *
+  `;
+
+  const isFailed = event === "sync-failed" || event === "health-degraded";
+  let task = null;
+
+  if (isFailed) {
+    const [existing] = await sql`
+      SELECT id FROM tasks
+      WHERE source = 'argocd' AND tags @> ARRAY[${appName}]::text[]
+        AND status NOT IN ('completed', 'failed', 'cancelled')
+      LIMIT 1
+    `;
+
+    if (!existing) {
+      [task] = await sql`
+        INSERT INTO tasks (title, description, category, priority, source, tags,
+                           status, decision, decision_reason)
+        VALUES (
+          ${`${appName} ${event} 調査`},
+          ${`ArgoCD ${event}: ${appName}\n${message ?? ""}\n${url ?? ""}`},
+          'investigate',
+          ${event === "sync-failed" ? "high" : "normal"},
+          'argocd',
+          ${[appName, "argocd", event]},
+          'approved',
+          'auto',
+          'ArgoCD failed/degraded イベントによる自動タスク作成'
+        )
+        RETURNING *
+      `;
+    }
+  }
+
+  return c.json({ post, task }, 201);
 });
 
 // --- Tasks API ---
