@@ -132,16 +132,31 @@ server.tool(
 
 server.tool(
   "complete_task",
-  "タスクを完了にする",
+  "タスクを完了にする（フィードバックも記録可能）",
   {
     id: z.number().describe("タスクID"),
     result: z.string().describe("タスクの結果"),
+    feedback: z.string().optional().describe("作業の感想・改善点（フレームワーク改善に使用）"),
   },
-  async ({ id, result: taskResult }) => {
+  async ({ id, result: taskResult, feedback }) => {
     const res = await api(`/tasks/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "completed", result: taskResult }),
     });
+
+    if (feedback) {
+      await api("/posts", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "report",
+          source: "claude-code",
+          context: String(id),
+          body: feedback,
+          tags: ["feedback"],
+        }),
+      });
+    }
+
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   }
 );
