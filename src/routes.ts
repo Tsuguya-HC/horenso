@@ -184,6 +184,10 @@ app.post("/tasks", async (c) => {
     notifyDiscord(task).catch(() => {});
   }
 
+  if (task.status === "approved") {
+    dispatchTask(task).catch((e) => console.error("dispatch error:", e));
+  }
+
   return c.json(task, 201);
 });
 
@@ -256,6 +260,10 @@ app.patch("/tasks/:id", async (c) => {
     RETURNING *
   `;
 
+  if (updated.status === "approved" && existing.status !== "approved") {
+    dispatchTask(updated).catch((e) => console.error("dispatch error:", e));
+  }
+
   return c.json(updated);
 });
 
@@ -267,6 +275,25 @@ app.get("/tasks/:id/posts", async (c) => {
   `;
   return c.json(posts);
 });
+
+const TASK_DISPATCH_URL = process.env.TASK_DISPATCH_URL;
+
+async function dispatchTask(task: Record<string, unknown>) {
+  if (!TASK_DISPATCH_URL) return;
+
+  await fetch(TASK_DISPATCH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      category: task.category,
+      priority: task.priority,
+      tags: task.tags,
+    }),
+  });
+}
 
 async function notifyDiscord(task: Record<string, unknown>) {
   if (!DISCORD_WEBHOOK_URL) return;
