@@ -51,13 +51,14 @@ server.tool(
   {
     title: z.string().describe("タスクのタイトル"),
     description: z.string().describe("タスクの詳細"),
-    category: z.enum(["investigate", "modify_manifest", "modify_infra", "modify_cloudflare", "operate", "observe"])
-      .describe("investigate=調査, modify_manifest=K8sマニフェスト変更, modify_infra=Talos変更, modify_cloudflare=CF変更, operate=運用操作, observe=観測"),
+    category: z.enum(["investigate", "modify_manifest", "modify_infra", "modify_cloudflare", "operate", "observe", "adjudicate"])
+      .describe("investigate=調査, modify_manifest=K8sマニフェスト変更, modify_infra=Talos変更, modify_cloudflare=CF変更, operate=運用操作, observe=観測, adjudicate=裁定依頼"),
     priority: z.enum(["low", "normal", "high", "critical"]).optional().describe("優先度 (デフォルト: normal)"),
     tags: z.array(z.string()).optional().describe("タグ"),
     parent_task_id: z.number().optional().describe("親タスクID（サブタスクの場合）"),
+    workflow_name: z.string().optional().describe("関連する Argo Workflow 名（adjudicate カテゴリで resume/stop 対象を指定）"),
   },
-  async ({ title, description, category, priority, tags, parent_task_id }) => {
+  async ({ title, description, category, priority, tags, parent_task_id, workflow_name }) => {
     const decision = await judge({
       id: 0,
       title,
@@ -72,7 +73,7 @@ server.tool(
     const result = await api("/tasks", {
       method: "POST",
       body: JSON.stringify({
-        title, description, category, priority, tags, parent_task_id,
+        title, description, category, priority, tags, parent_task_id, workflow_name,
         status, decision: decision.action, decision_reason: decision.reason,
       }),
     });

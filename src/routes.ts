@@ -146,11 +146,11 @@ app.post("/events/argocd", async (c) => {
 
 const VALID_STATUSES = ["pending", "approved", "running", "waiting_approval", "completed", "failed", "cancelled"] as const;
 const VALID_PRIORITIES = ["low", "normal", "high", "critical"] as const;
-const VALID_CATEGORIES = ["investigate", "modify_manifest", "modify_infra", "modify_cloudflare", "operate", "observe"] as const;
+const VALID_CATEGORIES = ["investigate", "modify_manifest", "modify_infra", "modify_cloudflare", "operate", "observe", "adjudicate"] as const;
 
 app.post("/tasks", async (c) => {
   const reqBody = await c.req.json();
-  const { title, description, category, priority, source, parent_task_id, tags } = reqBody;
+  const { title, description, category, priority, source, parent_task_id, tags, workflow_name } = reqBody;
 
   if (!title || !description || !category) {
     return c.json({ error: "title, description, category are required" }, 400);
@@ -164,7 +164,7 @@ app.post("/tasks", async (c) => {
 
   const [task] = await sql`
     INSERT INTO tasks (title, description, category, priority, source, parent_task_id, tags,
-                       status, decision, decision_reason)
+                       workflow_name, status, decision, decision_reason)
     VALUES (
       ${title},
       ${description},
@@ -173,6 +173,7 @@ app.post("/tasks", async (c) => {
       ${source ?? "claude-code"},
       ${parent_task_id ?? null},
       ${tags ?? []},
+      ${workflow_name ?? null},
       ${reqBody.status ?? "pending"},
       ${reqBody.decision ?? null},
       ${reqBody.decision_reason ?? null}
@@ -281,17 +282,20 @@ const TASK_DISPATCH_URL = process.env.TASK_DISPATCH_URL;
 async function dispatchTask(task: Record<string, unknown>) {
   if (!TASK_DISPATCH_URL) return;
 
-  await fetch(TASK_DISPATCH_URL, {
+  let url = TASK_DISPATCH_URL;
+  if (task.category === "adjudicate") {
+    url = TASK_DISPATCH_URL.replace(/\/task$/, "/adjudicate");
+  }
+
+  const body: Record<string, unknown> = task.category === "adjudicate"
+    ? { context: task.description, source_workflow: task.workflow_name ?? "", source_namespace: "claude-code" }
+    : { id: task.id, title: task.title, description: task.description,
+        category: task.category, priority: task.priority, tags: task.tags };
+
+  await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      category: task.category,
-      priority: task.priority,
-      tags: task.tags,
-    }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -38,7 +38,7 @@ export async function migrate() {
         CHECK (priority IN ('low','normal','high','critical')),
       category TEXT NOT NULL
         CHECK (category IN ('investigate','modify_manifest','modify_infra',
-                            'modify_cloudflare','operate','observe')),
+                            'modify_cloudflare','operate','observe','adjudicate')),
       source TEXT NOT NULL DEFAULT 'claude-code',
       parent_task_id INTEGER REFERENCES tasks(id),
       workflow_name TEXT,
@@ -53,6 +53,14 @@ export async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_tasks_tags ON tasks USING GIN (tags)`;
+
+  // Add 'adjudicate' category to tasks CHECK constraint
+  await sql`DO $$ BEGIN
+    ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_category_check;
+    ALTER TABLE tasks ADD CONSTRAINT tasks_category_check
+      CHECK (category IN ('investigate','modify_manifest','modify_infra',
+                          'modify_cloudflare','operate','observe','adjudicate'));
+  END $$`;
 }
 
 export { sql };
