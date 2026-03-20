@@ -53,6 +53,8 @@ auto を積極的に選べ。ask は「本当に危険な場合」だけ。ユ�
 
 変更が「元に戻せるか」「安全側か」で判断。可逆 + 安全側 = auto。`;
 
+const MAX_RETRIES = 2;
+
 export async function judge(task: Task): Promise<Decision> {
   const prompt = `${POLICY_GUIDELINES}
 
@@ -64,17 +66,25 @@ export async function judge(task: Task): Promise<Decision> {
 - 優先度: ${task.priority}
 - タグ: ${task.tags.join(", ") || "なし"}`;
 
-  try {
-    const result = await runClaude(prompt);
-    const json = JSON.parse(result);
-    const parsed = json.structured_output ?? json.result ?? json;
-    if (parsed.action !== "auto" && parsed.action !== "ask") {
-      return { action: "ask", reason: "判断エージェントの出力が不正のため ask にフォールバック" };
+  let lastError: string = "";
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await runClaude(prompt);
+      const json = JSON.parse(result);
+      const parsed = json.structured_output ?? json.result ?? json;
+      if (parsed.action !== "auto" && parsed.action !== "ask") {
+        lastError = `出力が不正 (action=${parsed.action})`;
+        continue;
+      }
+      return { action: parsed.action, reason: parsed.reason };
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
     }
-    return { action: parsed.action, reason: parsed.reason };
-  } catch (e) {
-    return { action: "ask", reason: `判断エージェントエラー: ${e instanceof Error ? e.message : String(e)}` };
   }
+  return {
+    action: "auto",
+    reason: `判断エージェントが${MAX_RETRIES}回失敗したため auto にフォールバック (最終エラー: ${lastError})`,
+  };
 }
 
 function runClaude(prompt: string): Promise<string> {
