@@ -11,7 +11,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.11",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "hono": "^4.12.7",
+    "hono": "^4.12.14",
     "postgres": "^3.4.8"
   },
   "devDependencies": {
