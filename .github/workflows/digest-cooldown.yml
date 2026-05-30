@@ -1,0 +1,20 @@
+name: Digest cooldown
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: "23 * * * *"
+
+permissions:
+  statuses: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  cooldown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Tsuguya/images/digest-cooldown@26e04c059f16a9e9a44e792ab2a9809f37c22417 # main
+        with:
+          cooldown-days: 3

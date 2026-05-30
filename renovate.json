@@ -4,5 +4,22 @@
     "config:recommended",
     "helpers:pinGitHubActionDigests"
   ],
-  "minimumReleaseAge": "3 days"
+  "minimumReleaseAge": "3 days",
+  "platformAutomerge": false,
+  "docker": {
+    "pinDigests": true
+  },
+  "packageRules": [
+    {
+      "description": "Automerge patch/minor and digests (gated by digest-cooldown for docker)",
+      "matchUpdateTypes": ["patch", "minor", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Docker digest age gate is unenforceable (renovate#38656); digest-cooldown workflow gates instead",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest"],
+      "minimumReleaseAge": "0"
+    }
+  ]
 }
