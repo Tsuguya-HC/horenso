@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
   schedule:
     - cron: "23 * * * *"
+  workflow_dispatch:
 
 permissions:
   statuses: write
