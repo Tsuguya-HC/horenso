@@ -5,6 +5,18 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 const app = new Hono();
 
+app.onError((err, c) => {
+  if (err instanceof SyntaxError) {
+    console.warn(
+      `[400] malformed JSON: ${c.req.method} ${c.req.path} ` +
+        `ua="${c.req.header("user-agent") ?? "-"}" xff="${c.req.header("x-forwarded-for") ?? "-"}": ${err.message}`,
+    );
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  console.error(`[500] ${c.req.method} ${c.req.path}:`, err);
+  return c.json({ error: "internal server error" }, 500);
+});
+
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.post("/posts", async (c) => {
