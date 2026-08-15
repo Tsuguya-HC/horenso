@@ -16,10 +16,10 @@
     "labels": ["security"]
   },
   "lockFileMaintenance": {
-    "description": "Every open alert here is a transitive dependency in package-lock.json, which no direct-dependency bump reaches. Not automerged: this repo has no test or build check, so nothing would validate the refreshed lock file.",
+    "description": "Every open alert here is a transitive dependency in package-lock.json, which no direct-dependency bump reaches. The refresh is age-gated at resolution time by min-release-age in .npmrc, and the build job installs from the refreshed lock file and compiles against it.",
     "enabled": true,
     "schedule": ["before 6am on monday"],
-    "automerge": false
+    "automerge": true
   },
   "platformAutomerge": false,
   "docker": {

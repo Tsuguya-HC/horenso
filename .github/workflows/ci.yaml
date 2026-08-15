@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          # Matches the Dockerfile, so a lock file that resolves here resolves
+          # in the image build too.
+          node-version: "22"
+          cache: npm
+
+      - name: Install (lock file must resolve)
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  # The only required status check. Aggregates every correctness leaf so the
+  # ruleset never names an individual job: adding or renaming a job below can't
+  # leave a required context that is never reported (which blocks the PR
+  # forever).
+  gate:
+    name: CI Gate
+    needs: [build]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Aggregate results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          set -euo pipefail
+          echo "Results: ${RESULTS}"
+          # fail-closed: an empty needs list would make the loop pass vacuously
+          if [ -z "${RESULTS// /}" ]; then
+            echo "::error::No job results to aggregate (empty needs) — failing closed."
+            exit 1
+          fi
+          for r in ${RESULTS}; do
+            case "${r}" in
+              success|skipped) ;;
+              *) echo "::error::A required job concluded with: ${r}"; exit 1 ;;
+            esac
+          done
