@@ -15,6 +15,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -29,13 +31,71 @@ jobs:
       - name: Build
         run: npm run build
 
+  # Checks the workflow expressions and job graph, and shells out to shellcheck
+  # for every `run:` block. Pinned and checksummed rather than pulled from the
+  # release page's `latest`.
+  actionlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        env:
+          # renovate: datasource=github-releases depName=rhysd/actionlint
+          ACTIONLINT_VERSION: "1.7.12"
+        run: |
+          set -euo pipefail
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl -fsSL "$base/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -o actionlint.tar.gz
+          curl -fsSL "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt" -o checksums.txt
+          grep " actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz\$" checksums.txt | sha256sum -c -
+          sudo tar xzf actionlint.tar.gz -C /usr/local/bin actionlint
+          actionlint --version
+
+      - name: Lint workflows
+        run: |
+          set -euo pipefail
+          # actionlint silently skips its shell checks when shellcheck is
+          # absent, which would quietly reduce this job to expression linting
+          # if the runner image ever drops it.
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not on the runner; actionlint would skip every run: block"
+            exit 1
+          }
+          actionlint -no-color
+
+  # Static audit of the workflows themselves: template injection, credential
+  # persistence, permission scope, spoofable bot conditions. The action resolves
+  # the version below to a digest-pinned container, so nothing here floats.
+  zizmor:
+    runs-on: ubuntu-latest
+    # This repo is private and has no Advanced Security, so there is nowhere to
+    # upload SARIF to; findings surface as job annotations instead and the job
+    # needs no token at all.
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          # renovate: datasource=github-releases depName=zizmorcore/zizmor
+          version: "1.29.0"
+          advanced-security: false
+          annotations: true
+
   # The only required status check. Aggregates every correctness leaf so the
   # ruleset never names an individual job: adding or renaming a job below can't
   # leave a required context that is never reported (which blocks the PR
   # forever).
   gate:
     name: CI Gate
-    needs: [build]
+    needs: [build, actionlint, zizmor]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions: {}
