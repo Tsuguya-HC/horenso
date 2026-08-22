@@ -4,8 +4,12 @@
   // The aqua preset is pinned rather than floating: it owns which files the aqua
   // manager reads, and a preset-side change would silently re-scope this repo.
   "extends": [
-    "config:recommended",
-    "helpers:pinGitHubActionDigests",
+    // config:best-practices = config:recommended + docker:pinDigests
+    // + helpers:pinGitHubActionDigests + :configMigration + :pinDevDependencies
+    // + abandonments:recommended + security:minimumReleaseAgeNpm
+    // + :maintainLockFilesWeekly. The two presets listed separately before are
+    // both inside it now.
+    "config:best-practices",
     "github>aquaproj/aqua-renovate-config#2.13.0"
   ],
 
@@ -100,13 +104,6 @@
       ],
       "matchUpdateTypes": ["lockFileMaintenance"],
       "minimumReleaseAge": "0"
-    },
-    {
-      // Pin every docker reference to a digest. Written as a packageRule rather than
-      // a top-level `docker` block, which is the pre-migration spelling.
-      "description": "Pin docker digests; the digest-cooldown workflow soaks them before merge",
-      "matchCategories": ["docker"],
-      "pinDigests": true
     },
     {
       "description": "Automerge patch/minor and digests (gated by digest-cooldown for docker)",
