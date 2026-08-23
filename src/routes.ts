@@ -122,6 +122,25 @@ app.post("/events/argocd", async (c) => {
 
   const isFailed = event === "sync-failed" || event === "health-degraded";
   let task = null;
+  let resolved: Record<string, unknown>[] = [];
+
+  const recoveredFrom =
+    event === "sync-succeeded" ? "sync-failed"
+    : event === "health-recovered" ? "health-degraded"
+    : null;
+
+  if (recoveredFrom) {
+    resolved = await sql`
+      UPDATE tasks
+      SET status = 'completed',
+          result = ${`resolved by ArgoCD ${event} event`},
+          updated_at = NOW()
+      WHERE source = 'argocd'
+        AND tags @> ARRAY[${appName}, ${recoveredFrom}]::text[]
+        AND status NOT IN ('completed', 'failed', 'cancelled')
+      RETURNING id, title
+    `;
+  }
 
   if (isFailed) {
     const [existing] = await sql`
@@ -151,7 +170,98 @@ app.post("/events/argocd", async (c) => {
     }
   }
 
-  return c.json({ post, task }, 201);
+  return c.json({ post, task, resolved }, 201);
+});
+
+// --- Maintenance ---
+//
+// 日次の整理。判断は全て決定的で、LLM は使わない。
+// ArgoCD の現状は呼び出し側 (CronWorkflow) が kubectl で集めて渡す。
+// horenso 自身に ArgoCD の読み取り権限を持たせない。
+//
+// 1. 回復イベントを取りこぼした argocd 由来タスクを現状と突き合わせて閉じる
+// 2. running のまま更新が止まったタスクを failed にする
+// 3. 古い event 投稿を削除する (report/update/question は引き継ぎノートなので残す)
+// 4. 結果を report として投稿する (0 件でも投稿する — 沈黙と正常を区別するため)
+
+const EVENT_RETENTION_DAYS = parseInt(process.env.EVENT_RETENTION_DAYS ?? "30");
+const RUNNING_STALE_HOURS = parseInt(process.env.RUNNING_STALE_HOURS ?? "24");
+const OPEN_STALE_DAYS = parseInt(process.env.OPEN_STALE_DAYS ?? "7");
+
+app.post("/maintenance", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const apps: { name: string; health?: string; sync?: string }[] = Array.isArray(body.apps) ? body.apps : [];
+
+  const resolved: { id: number; title: string }[] = [];
+  for (const a of apps) {
+    if (!a?.name) continue;
+    const closeEvents: string[] = [];
+    if (a.health === "Healthy") closeEvents.push("health-degraded");
+    if (a.sync === "Synced") closeEvents.push("sync-failed");
+    for (const ev of closeEvents) {
+      const rows = await sql`
+        UPDATE tasks
+        SET status = 'completed',
+            result = ${`resolved: ${a.name} is ${ev === "health-degraded" ? "Healthy" : "Synced"} (maintenance reconcile)`},
+            updated_at = NOW()
+        WHERE source = 'argocd'
+          AND tags @> ARRAY[${a.name}, ${ev}]::text[]
+          AND status NOT IN ('completed', 'failed', 'cancelled')
+        RETURNING id, title
+      `;
+      resolved.push(...(rows as unknown as { id: number; title: string }[]));
+    }
+  }
+
+  const staleRunning = await sql`
+    UPDATE tasks
+    SET status = 'failed',
+        result = ${`no status update for ${RUNNING_STALE_HOURS}h while running (maintenance)`},
+        updated_at = NOW()
+    WHERE status = 'running'
+      AND updated_at < NOW() - ${`${RUNNING_STALE_HOURS} hours`}::interval
+    RETURNING id, title
+  `;
+
+  const staleOpen = await sql`
+    SELECT id, title, status, source, created_at FROM tasks
+    WHERE status IN ('pending', 'approved', 'waiting_approval')
+      AND updated_at < NOW() - ${`${OPEN_STALE_DAYS} days`}::interval
+    ORDER BY created_at
+  `;
+
+  const purged = await sql`
+    DELETE FROM posts
+    WHERE type = 'event'
+      AND created_at < NOW() - ${`${EVENT_RETENTION_DAYS} days`}::interval
+    RETURNING id
+  `;
+
+  const summary = {
+    apps_checked: apps.length,
+    resolved: resolved.map((t) => `#${t.id} ${t.title}`),
+    failed_stale_running: staleRunning.map((t) => `#${t.id} ${t.title}`),
+    stale_open: staleOpen.map((t) => `#${t.id} [${t.status}] ${t.title} (${String(t.created_at).slice(0, 10)})`),
+    purged_events: purged.length,
+  };
+
+  const lines = [
+    `**ArgoCD apps checked**: ${summary.apps_checked}`,
+    `**Resolved**: ${summary.resolved.length}`,
+    ...summary.resolved.map((s) => `- ${s}`),
+    `**Failed (stale running)**: ${summary.failed_stale_running.length}`,
+    ...summary.failed_stale_running.map((s) => `- ${s}`),
+    `**Still open > ${OPEN_STALE_DAYS}d**: ${summary.stale_open.length}`,
+    ...summary.stale_open.map((s) => `- ${s}`),
+    `**Purged event posts (> ${EVENT_RETENTION_DAYS}d)**: ${summary.purged_events}`,
+  ];
+
+  await sql`
+    INSERT INTO posts (type, source, context, body, tags)
+    VALUES ('report', 'maintenance', 'maintenance', ${lines.join("\n")}, ${["maintenance"]})
+  `;
+
+  return c.json(summary);
 });
 
 // --- Tasks API ---
