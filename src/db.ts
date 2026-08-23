@@ -54,6 +54,13 @@ export async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_tasks_tags ON tasks USING GIN (tags)`;
 
+  // argocd 由来タスクに app:<name> タグを付与 (tags[1] が app 名という作成時の並び)
+  await sql`
+    UPDATE tasks SET tags = tags || ARRAY['app:' || tags[1]]
+    WHERE source = 'argocd' AND array_length(tags, 1) >= 1
+      AND NOT EXISTS (SELECT 1 FROM unnest(tags) t WHERE t LIKE 'app:%')
+  `;
+
   // Add 'adjudicate' category to tasks CHECK constraint
   await sql`DO $$ BEGIN
     ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_category_check;
