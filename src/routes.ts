@@ -136,7 +136,7 @@ app.post("/events/argocd", async (c) => {
           result = ${`resolved by ArgoCD ${event} event`},
           updated_at = NOW()
       WHERE source = 'argocd'
-        AND tags @> ARRAY[${appName}, ${recoveredFrom}]::text[]
+        AND tags @> ARRAY[${`app:${appName}`}, ${recoveredFrom}]::text[]
         AND status NOT IN ('completed', 'failed', 'cancelled')
       RETURNING id, title
     `;
@@ -160,7 +160,7 @@ app.post("/events/argocd", async (c) => {
           'investigate',
           ${event === "sync-failed" ? "high" : "normal"},
           'argocd',
-          ${[appName, "argocd", event]},
+          ${[appName, `app:${appName}`, "argocd", event]},
           'approved',
           'auto',
           'ArgoCD failed/degraded イベントによる自動タスク作成'
@@ -172,6 +172,10 @@ app.post("/events/argocd", async (c) => {
 
   return c.json({ post, task, resolved }, 201);
 });
+
+// argocd 由来タスクの app 照合は `app:<name>` タグで行う。素のタグ配列には
+// "argocd" (source) も入っているので、`argocd` という名前の Application が
+// Healthy になった瞬間に全タスクへ一致してしまう (2026-08-23 に実際に起きた)。
 
 // --- Maintenance ---
 //
@@ -205,7 +209,7 @@ app.post("/maintenance", async (c) => {
             result = ${`resolved: ${a.name} is ${ev === "health-degraded" ? "Healthy" : "Synced"} (maintenance reconcile)`},
             updated_at = NOW()
         WHERE source = 'argocd'
-          AND tags @> ARRAY[${a.name}, ${ev}]::text[]
+          AND tags @> ARRAY[${`app:${a.name}`}, ${ev}]::text[]
           AND status NOT IN ('completed', 'failed', 'cancelled')
         RETURNING id, title
       `;
