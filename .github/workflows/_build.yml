@@ -26,7 +26,7 @@ jobs:
         with:
           # Matches the Dockerfile, so a lock file that resolves here resolves
           # in the image build too.
-          node-version: "22"
+          node-version: "24"
           cache: npm
 
       - name: Install (lock file must resolve)
