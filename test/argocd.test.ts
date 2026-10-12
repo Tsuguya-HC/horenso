@@ -71,3 +71,13 @@ test("an Application named argocd recovering does not close other apps' tasks", 
   assert.deepEqual(resolved, []);
   assert.equal((await openTasks()).length, 1);
 });
+
+// 重複判定も app:<name> で照合する。素のアプリ名だと "argocd" が source タグに
+// 一致して、別アプリのタスクが開いている間は argocd 自身の失敗が握り潰される。
+test("an Application named argocd failing gets its own task while other apps' tasks are open", async () => {
+  await event("web", "sync-failed");
+  const { task } = await (await event("argocd", "sync-failed")).json();
+  assert.notEqual(task, null);
+  assert.deepEqual(task.tags, ["argocd", "app:argocd", "argocd", "sync-failed"]);
+  assert.equal((await openTasks()).length, 2);
+});
