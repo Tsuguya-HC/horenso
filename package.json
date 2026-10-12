@@ -6,7 +6,9 @@
     "dev": "tsx watch src/index.ts",
     "mcp": "tsx src/mcp.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.0",
