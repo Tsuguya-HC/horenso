@@ -34,3 +34,23 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # 上の 2 段は runner の Node で見ているだけで、Dockerfile そのものは通らない。
+      # Renovate は node イメージの digest 更新を automerge するので、ここで実際に
+      # イメージを組まないと、壊れた base や runtime ステージ（npm ci --omit=dev）が
+      # 誰の目にも触れずに main に入る。
+      - name: Build image
+        run: docker build --tag horenso:ci .
+
+      # runtime ステージの依存だけでアプリが読み込めること（dependencies に入れ
+      # 忘れた実行時依存はここで落ちる）と、非 root で動くことを見る。DB には
+      # 繋がない — postgres クライアントは最初のクエリまで接続しない。
+      - name: Smoke-test the image
+        run: |
+          set -euo pipefail
+          docker run --rm horenso:ci node --input-type=module -e "await import('/app/dist/routes.js')"
+          uid="$(docker run --rm horenso:ci id -u)"
+          if [ "${uid}" = 0 ]; then
+            echo "::error::the image runs as root"
+            exit 1
+          fi
