@@ -75,7 +75,10 @@ jobs:
               - 'package-lock.json'
               - 'tsconfig.json'
               - 'Dockerfile'
+              - 'tsconfig.test.json'
+              - 'test/**'
               - '.github/workflows/_build.yml'
+              - '.github/workflows/_test.yml'
             workflows:
               - '.github/workflows/**'
               - '.github/zizmor.yml'
@@ -92,6 +95,14 @@ jobs:
     # 呼び出しには当たらない — GitHub が同じ commit から解決し FS を見ない。
     # ignore は行単位。ステップの `uses: ./my-action` は今も検出される。
     uses: ./.github/workflows/_build.yml # zizmor: ignore[self-repository]
+    permissions:
+      contents: read
+
+  # テスト。build と同じ `app` フィルタで走らせる（src を変えた PR は必ずテストを通る）。
+  test:
+    needs: detect
+    if: ${{ needs.detect.outputs.app == 'true' }}
+    uses: ./.github/workflows/_test.yml # zizmor: ignore[self-repository]
     permissions:
       contents: read
 
@@ -127,7 +138,7 @@ jobs:
   # 緑」が必須チェックを満たしてしまう。
   gate:
     name: CI Gate
-    needs: [detect, build, lint-workflows, lint-renovate]
+    needs: [detect, build, test, lint-workflows, lint-renovate]
     # `always()` ではなく `!cancelled()`。always() だと run をキャンセルしたとき
     # 全ての leaf が `cancelled` を返し、下の case をすり抜けて必須チェックが
     # 失敗として記録される。キャンセルされた run に下すべき判定は無い。

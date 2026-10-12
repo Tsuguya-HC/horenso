@@ -1,0 +1,57 @@
+name: test
+
+# アプリのテスト leaf。テストは本物の Postgres に対して走る（SQL がこのアプリの
+# 振る舞いの大半なので、DB を偽物にすると検査したいところが抜ける）。
+#
+# オーケストレーターは ci.yaml。直接のトリガーを持たない理由は _build.yml と同じ。
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          # 使い捨てのサービスコンテナ専用の値で、秘密ではない。
+          POSTGRES_USER: horenso
+          POSTGRES_PASSWORD: horenso
+          POSTGRES_DB: horenso_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U horenso -d horenso_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # tsx は型を見ずに実行するので、テストコードの型検査はここで別に行う。
+      - name: Typecheck (src + test)
+        run: npm run typecheck
+
+      - name: Test
+        env:
+          # テストは TRUNCATE するので DATABASE_URL ではなく専用の変数で渡す
+          # （test/helpers.ts）。client_min_messages は CREATE ... IF NOT EXISTS の
+          # NOTICE がログを埋めるのを抑えるだけ。
+          TEST_DATABASE_URL: postgres://horenso:horenso@localhost:5432/horenso_test?client_min_messages=warning
+        run: npm test

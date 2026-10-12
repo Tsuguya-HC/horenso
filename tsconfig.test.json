@@ -1,0 +1,9 @@
+{
+  // テストも含めた型検査用。ビルド (tsconfig.json) は src だけを dist に出す。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src", "test"]
+}
