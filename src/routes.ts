@@ -368,24 +368,35 @@ app.patch("/tasks/:id", async (c) => {
   const id = parseInt(c.req.param("id"));
   const body = await c.req.json();
 
-  const [existing] = await sql`SELECT * FROM tasks WHERE id = ${id}`;
-  if (!existing) return c.json({ error: "not found" }, 404);
+  // 読み出しから更新までを行ロックで 1 本にする。ロック無しだと同時に来た
+  // 承認が全員「まだ approved でない」行を読み、全員が dispatch してしまう。
+  const outcome = await sql.begin(async (tx) => {
+    const [existing] = await tx`SELECT * FROM tasks WHERE id = ${id} FOR UPDATE`;
+    if (!existing) return { error: "not found" as const };
 
-  if (body.status) {
-    if (!VALID_STATUSES.includes(body.status)) {
-      return c.json({ error: `status must be one of: ${VALID_STATUSES.join(", ")}` }, 400);
+    if (body.status) {
+      if (!VALID_STATUSES.includes(body.status)) {
+        return { error: "invalid status" as const };
+      }
     }
-  }
 
-  const [updated] = await sql`
-    UPDATE tasks SET
-      status = ${body.status ?? existing.status},
-      result = ${body.result ?? existing.result},
-      workflow_name = ${body.workflow_name ?? existing.workflow_name},
-      updated_at = NOW()
-    WHERE id = ${id}
-    RETURNING *
-  `;
+    const [updated] = await tx`
+      UPDATE tasks SET
+        status = ${body.status ?? existing.status},
+        result = ${body.result ?? existing.result},
+        workflow_name = ${body.workflow_name ?? existing.workflow_name},
+        updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    return { existing, updated };
+  });
+
+  if (outcome.error === "not found") return c.json({ error: "not found" }, 404);
+  if (outcome.error === "invalid status") {
+    return c.json({ error: `status must be one of: ${VALID_STATUSES.join(", ")}` }, 400);
+  }
+  const { existing, updated } = outcome;
 
   if (updated.status === "approved" && existing.status !== "approved") {
     dispatchTask(updated).catch((e) => console.error("dispatch error:", e));
