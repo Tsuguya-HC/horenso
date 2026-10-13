@@ -308,7 +308,7 @@ app.post("/tasks", async (c) => {
   `;
 
   if (task.status === "waiting_approval" && DISCORD_WEBHOOK_URL) {
-    notifyDiscord(task).catch(() => {});
+    notifyDiscord(task).catch((e) => console.error("discord notify error:", e));
   }
 
   if (task.status === "approved") {
@@ -418,11 +418,16 @@ async function dispatchTask(task: Record<string, unknown>) {
     : { id: task.id, title: task.title, description: task.description,
         category: task.category, priority: task.priority, tags: task.tags };
 
-  await fetch(url, {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  // fetch は HTTP エラーでは reject しない。見ないと受け手の 500 が成功扱いになり、
+  // タスクは approved のまま誰にも拾われない。
+  if (!res.ok) {
+    throw new Error(`task #${task.id}: ${url} answered ${res.status} ${await res.text()}`);
+  }
 }
 
 async function notifyDiscord(task: Record<string, unknown>) {
@@ -438,11 +443,15 @@ async function notifyDiscord(task: Record<string, unknown>) {
     }],
   };
 
-  await fetch(DISCORD_WEBHOOK_URL, {
+  const res = await fetch(DISCORD_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  // 上限超過の embed などは 400 で返る。承認待ちの通知が届かなかったことを残す。
+  if (!res.ok) {
+    throw new Error(`task #${task.id}: Discord webhook answered ${res.status} ${await res.text()}`);
+  }
 }
 
 export { app };
