@@ -129,6 +129,10 @@ app.post("/events/argocd", async (c) => {
     : event === "health-recovered" ? "health-degraded"
     : null;
 
+  // argocd 由来タスクの app 照合は `app:<name>` タグで行う (回復・重複判定・
+  // /maintenance の全て)。素のタグ配列には "argocd" (source) も入っているので、
+  // `argocd` という名前の Application が全タスクへ一致してしまう
+  // (2026-08-23 に回復側で実際に起きた)。
   if (recoveredFrom) {
     resolved = await sql`
       UPDATE tasks
@@ -145,7 +149,7 @@ app.post("/events/argocd", async (c) => {
   if (isFailed) {
     const [existing] = await sql`
       SELECT id FROM tasks
-      WHERE source = 'argocd' AND tags @> ARRAY[${appName}]::text[]
+      WHERE source = 'argocd' AND tags @> ARRAY[${`app:${appName}`}]::text[]
         AND status NOT IN ('completed', 'failed', 'cancelled')
       LIMIT 1
     `;
@@ -172,10 +176,6 @@ app.post("/events/argocd", async (c) => {
 
   return c.json({ post, task, resolved }, 201);
 });
-
-// argocd 由来タスクの app 照合は `app:<name>` タグで行う。素のタグ配列には
-// "argocd" (source) も入っているので、`argocd` という名前の Application が
-// Healthy になった瞬間に全タスクへ一致してしまう (2026-08-23 に実際に起きた)。
 
 // --- Maintenance ---
 //
