@@ -97,6 +97,22 @@ test("PATCH to approved dispatches once; later updates do not re-dispatch", asyn
   assert.equal(dispatch.received.length, 1);
 });
 
+// 承認の遷移は 1 回しか起きないので、同時に何本 PATCH が来ても投げるのは 1 回。
+// 読んでから書く実装だと、全員が「まだ approved でない」行を読んで全員が投げる。
+test("concurrent approvals of the same task dispatch it exactly once", async () => {
+  for (let round = 0; round < 5; round++) {
+    dispatch.received.length = 0;
+    const task = await create({ status: "waiting_approval" });
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => request("PATCH", `/tasks/${task.id}`, { status: "approved" })),
+    );
+    assert.deepEqual(results.map((r) => r.status), Array(8).fill(200));
+    await waitFor(() => dispatch.received.length >= 1);
+    await settle();
+    assert.equal(dispatch.received.length, 1, `round ${round}: dispatched ${dispatch.received.length} times`);
+  }
+});
+
 test("PATCH validates status and 404s on a missing task", async () => {
   const task = await create({});
   assert.equal((await request("PATCH", `/tasks/${task.id}`, { status: "done" })).status, 400);
